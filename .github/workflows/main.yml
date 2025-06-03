@@ -2,10 +2,8 @@ name: Auto Build & Release FFmpeg (Windows, H.265)
 
 on:
   push:
-    branches: [ "main" ]  # Runs on every push to main
-  workflow_dispatch:      # Allow manual triggering
-  schedule:
-    - cron: '0 0 * * *'   # Optional: Daily build (midnight UTC)
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,9 +22,8 @@ jobs:
           pkg-config
           diffutils
           nasm
-          gcc
-          yasm
-          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-yasm
           mingw-w64-x86_64-nasm
           mingw-w64-x86_64-x265
 
@@ -39,8 +36,9 @@ jobs:
       run: |
         cd ffmpeg
         ./configure \
-          --toolchain=msvc \
           --arch=x86_64 \
+          --target-os=mingw32 \
+          --cross-prefix=x86_64-w64-mingw32- \
           --enable-shared \
           --enable-gpl \
           --enable-version3 \
@@ -78,4 +76,3 @@ jobs:
       with:
         files: ffmpeg-h265-win64.zip
         generate_release_notes: true
-        prerelease: false
