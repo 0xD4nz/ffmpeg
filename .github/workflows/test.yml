@@ -21,6 +21,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # Menginstal CMake versi terbaru dari MSYS2
           install: >-
             git
             make
@@ -43,33 +44,33 @@ jobs:
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-bzip2
 
-      - name: Set up Environment Variables
+      - name: Set up Environment Variables for Custom Builds
         shell: msys2 {0}
         run: |
           export INSTALL_DIR=$(pwd)/ffmpeg_build
           export PATH="$INSTALL_DIR/bin:$PATH"
           export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
           mkdir -p "$INSTALL_DIR"
-          echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
+          echo "INSTALL_DIR=$(pwd)/ffmpeg_build" >> "$GITHUB_ENV"
           echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
 
-      - name: Clone and Build libx265
+      - name: Clone and Build libx265 (using MSYS2 CMake)
         shell: msys2 {0}
         run: |
           cd "$INSTALL_DIR"
           git clone https://github.com/videolan/x265.git x265_source
           mkdir -p x265_build
           cd x265_build
-          cmake -G "MinGW Makefiles" ../x265_source/source \
+          # Menggunakan CMake yang diinstal oleh MSYS2
+          # Jika masih ada masalah compatibility, x265_source/source adalah folder yang benar
+          cmake -G "Unix Makefiles" ../x265_source/source \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DENABLE_SHARED=OFF \
             -DENABLE_CLI=OFF
           make -j$(nproc)
           make install
-          # Clean up build files
-          cd ..
-          rm -rf x265_source x265_build
+          cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
 
       - name: Clone FFmpeg
         shell: msys2 {0}
@@ -92,8 +93,7 @@ jobs:
             --enable-libx264 \
             --enable-libfdk-aac \
             --enable-nonfree \
-            --enable-static \
-            --disable-shared \
+            --enable-shared \
             --enable-version3 \
             --enable-libmp3lame \
             --enable-libopus \
@@ -102,9 +102,6 @@ jobs:
             --enable-libxml2
           make -j$(nproc)
           make install
-          # Clean up source
-          cd ..
-          rm -rf ffmpeg_source
 
       - name: Create FFmpeg Archive
         id: create_archive
@@ -113,10 +110,7 @@ jobs:
           cd "$INSTALL_DIR"
           VERSION=$(./bin/ffmpeg -version | head -n 1 | awk '{print $3}')
           ARCHIVE_NAME="ffmpeg-h265-$(date +%Y%m%d)-${VERSION}-windows-x64.zip"
-          # Only package the necessary files
-          mkdir -p package
-          cp -r bin package/
-          zip -r "$ARCHIVE_NAME" package
+          zip -r "$ARCHIVE_NAME" bin lib share
 
           echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
@@ -130,12 +124,7 @@ jobs:
           body: |
             This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
             Built from FFmpeg source on $(date +%Y-%m-%d).
-            Features included:
-            - H.265/x265 encoding
-            - H.264/x264 encoding
-            - AAC (FDK-AAC) encoding
-            - MP3 (LAME) encoding
-            - Opus audio codec
-          files: ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
+          files: |
+            ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
