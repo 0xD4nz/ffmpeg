@@ -1,255 +1,141 @@
-name: Build FFmpeg All Latest Dev Fixed
+name: Build FFmpeg with H.265 (Windows) and Upload to Release
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
 
-env:
-  BUILD_DIR_LINUX: ${{ github.workspace }}/ffmpeg_build_linux
-  BUILD_DIR_WINDOWS: ${{ github.workspace }}/ffmpeg_build_windows
-  SOURCES_DIR_LINUX: ${{ github.workspace }}/ffmpeg_sources_linux
-  SOURCES_DIR_WINDOWS: ${{ github.workspace }}/ffmpeg_sources_windows
-
-  FFMPEG_SNAPSHOT_URL: "https://ffmpeg.org/releases/ffmpeg-snapshot.tar.bz2"
-  FFMPEG_SNAPSHOT_ARCHIVE: "ffmpeg-snapshot.tar.bz2"
-  FFMPEG_EXTRACTED_DIR: "ffmpeg"
-
 jobs:
-  build_ffmpeg_linux:
-    name: Build FFmpeg (Linux - All Latest Dev)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            autoconf automake build-essential cmake \
-            git-core libass-dev libfreetype6-dev libgnutls28-dev \
-            libmp3lame-dev libsdl2-dev libtool libva-dev libvdpau-dev \
-            libvorbis-dev libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
-            meson ninja-build pkg-config texinfo wget curl \
-            nasm yasm mercurial
-
-      - name: Create Directories & Set Environment
-        run: |
-          mkdir -p "${BUILD_DIR_LINUX}/lib/pkgconfig" "${SOURCES_DIR_LINUX}" "${BUILD_DIR_LINUX}/bin"
-          echo "PATH=${BUILD_DIR_LINUX}/bin:$PATH" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH_CUSTOM=${BUILD_DIR_LINUX}/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=${BUILD_DIR_LINUX}/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-
-      - name: Build libx264 (Latest Development)
-        working-directory: ${{ env.SOURCES_DIR_LINUX }}
-        run: |
-          git clone --depth 1 https://code.videolan.org/videolan/x264.git
-          cd x264
-          ./configure --prefix="${{ env.BUILD_DIR_LINUX }}" --bindir="${{ env.BUILD_DIR_LINUX }}/bin" --enable-static --enable-pic --disable-cli
-          make -j$(nproc)
-          make install
-
-      - name: Build libx265 (Latest Development)
-        working-directory: ${{ env.SOURCES_DIR_LINUX }}
-        run: |
-          git clone --depth 1 https://bitbucket.org/multicoreware/x265_git.git x265
-          cd x265/source 
-          mkdir build-cmake && cd build-cmake
-          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="${{ env.BUILD_DIR_LINUX }}" -DENABLE_SHARED=OFF -DENABLE_STATIC_LIB=ON ../
-          make -j$(nproc)
-          make install
-
-      - name: Build FFmpeg (Latest Snapshot)
-        working-directory: ${{ env.SOURCES_DIR_LINUX }}
-        env:
-           PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH_CUSTOM }}:${{ env.PKG_CONFIG_PATH }}
-        run: |
-          curl -O -L ${{ env.FFMPEG_SNAPSHOT_URL }}
-          tar xjvf ${{ env.FFMPEG_SNAPSHOT_ARCHIVE }}
-          cd ${{ env.FFMPEG_EXTRACTED_DIR }}
-          ./configure \
-            --prefix="${{ env.BUILD_DIR_LINUX }}" \
-            --pkg-config-flags="--static" \
-            --extra-cflags="-I${{ env.BUILD_DIR_LINUX }}/include" \
-            --extra-ldflags="-L${{ env.BUILD_DIR_LINUX }}/lib" \
-            --bindir="${{ env.BUILD_DIR_LINUX }}/bin" \
-            --enable-gpl \
-            --enable-nonfree \
-            --enable-libass \
-            --enable-libfreetype \
-            --enable-libmp3lame \
-            --enable-libvorbis \
-            --enable-libx264 \
-            --enable-libx265
-          make -j$(nproc)
-          make install
-
-      - name: Create Archive (Linux)
-        run: |
-          ARCHIVE_NAME="ffmpeg-linux-latest-dev-$(date +%Y%m%d)-${{ github.sha }}"
-          cd ${{ env.BUILD_DIR_LINUX }}/bin
-          tar -czvf $GITHUB_WORKSPACE/${ARCHIVE_NAME}.tar.gz ffmpeg ffprobe
-          echo "LINUX_ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
-
-      - name: Upload Artifact (Linux)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ffmpeg-linux
-          path: ${{ env.LINUX_ARCHIVE_NAME }}
-
   build_ffmpeg_windows:
-    name: Build FFmpeg (Windows - All Latest Dev)
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup MSYS2
+      - name: Set up MSYS2 Environment
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
           install: >-
-            git make autoconf automake pkg-config diffutils tar
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-g++
-            mingw-w64-x86_64-nasm
-            mingw-w64-x86_64-yasm
-            mingw-w64-x86_64-SDL2
-            curl
-            mercurial
+            git
+            make
+            automake
+            autoconf
+            libtool
+            pkg-config
+            diffutils
+            yasm
+            nasm
+            cmake
+            gcc
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-x264
+            mingw-w64-x86_64-fdk-aac
+            mingw-w64-x86_64-opus
+            mingw-w64-x86_64-lame
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-bzip2
 
-      - name: Create Directories & Set Environment (Windows/MSYS2)
+      - name: Set up Environment Variables
         shell: msys2 {0}
         run: |
-          WIN_BUILD_PREFIX="${GITHUB_WORKSPACE}/ffmpeg_build_windows"
-          WIN_SOURCES_PREFIX="${GITHUB_WORKSPACE}/ffmpeg_sources_windows"
-          mkdir -p "$WIN_BUILD_PREFIX/bin" "$WIN_BUILD_PREFIX/lib/pkgconfig" "$WIN_SOURCES_PREFIX"
-          
-          echo "MSYS2_BUILD_PREFIX=$WIN_BUILD_PREFIX" >> $GITHUB_ENV
-          echo "MSYS2_SOURCES_PREFIX=$WIN_SOURCES_PREFIX" >> $GITHUB_ENV
-          echo "PATH=$WIN_BUILD_PREFIX/bin:$PATH" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH_CUSTOM=$WIN_BUILD_PREFIX/lib/pkgconfig" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$WIN_BUILD_PREFIX/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          export INSTALL_DIR=$(pwd)/ffmpeg_build
+          export PATH="$INSTALL_DIR/bin:$PATH"
+          export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
+          mkdir -p "$INSTALL_DIR"
+          echo "INSTALL_DIR=$INSTALL_DIR" >> "$GITHUB_ENV"
+          echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
 
-      - name: Build libx264 (Latest Development)
+      - name: Clone and Build libx265
         shell: msys2 {0}
-        env:
-          PREFIX: ${{ env.MSYS2_BUILD_PREFIX }}
-          SOURCES: ${{ env.MSYS2_SOURCES_PREFIX }}
-          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH_CUSTOM }}:${{ env.PKG_CONFIG_PATH }}
         run: |
-          cd "$SOURCES"
-          git clone --depth 1 https://code.videolan.org/videolan/x264.git
-          cd x264
-          ./configure --prefix="$PREFIX" --host=x86_64-w64-mingw32 --enable-static --disable-cli --enable-pic
-          make -j$(nproc)
-          make install
-
-      - name: Build libx265 (Latest Development)
-        shell: msys2 {0}
-        env:
-          PREFIX: ${{ env.MSYS2_BUILD_PREFIX }}
-          SOURCES: ${{ env.MSYS2_SOURCES_PREFIX }}
-          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH_CUSTOM }}:${{ env.PKG_CONFIG_PATH }}
-        run: |
-          cd "$SOURCES"
-          git clone --depth 1 https://bitbucket.org/multicoreware/x265_git.git x265
-          cd x265/source
-          mkdir build-cmake && cd build-cmake
-          cmake \
-            -G "MinGW Makefiles" \
-            -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+          cd "$INSTALL_DIR"
+          git clone https://github.com/videolan/x265.git x265_source
+          mkdir -p x265_build
+          cd x265_build
+          cmake -G "MinGW Makefiles" ../x265_source/source \
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DENABLE_SHARED=OFF \
-            -DENABLE_STATIC_LIB=ON \
-            -DCMAKE_C_COMPILER=$(which gcc) \
-            -DCMAKE_CXX_COMPILER=$(which g++) \
-            -DCMAKE_MAKE_PROGRAM=$(which make) \
-            ../
+            -DENABLE_CLI=OFF
           make -j$(nproc)
           make install
+          # Clean up build files
+          cd ..
+          rm -rf x265_source x265_build
 
-      - name: Build FFmpeg (Latest Snapshot)
+      - name: Clone FFmpeg
         shell: msys2 {0}
-        env:
-          PREFIX: ${{ env.MSYS2_BUILD_PREFIX }}
-          SOURCES: ${{ env.MSYS2_SOURCES_PREFIX }}
-          FFMPEG_SNAPSHOT_URL: ${{ env.FFMPEG_SNAPSHOT_URL }}
-          FFMPEG_SNAPSHOT_ARCHIVE: ${{ env.FFMPEG_SNAPSHOT_ARCHIVE }}
-          FFMPEG_EXTRACTED_DIR: ${{ env.FFMPEG_EXTRACTED_DIR }}
-          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH_CUSTOM }}:${{ env.PKG_CONFIG_PATH }}
         run: |
-          cd "$SOURCES"
-          curl -O -L $FFMPEG_SNAPSHOT_URL
-          tar xjvf $FFMPEG_SNAPSHOT_ARCHIVE
-          cd $FFMPEG_EXTRACTED_DIR
-          export LDFLAGS="-L${PREFIX}/lib"
-          export CPPFLAGS="-I${PREFIX}/include"
+          cd "$INSTALL_DIR"
+          git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg_source
+
+      - name: Configure and Build FFmpeg
+        shell: msys2 {0}
+        run: |
+          cd "$INSTALL_DIR/ffmpeg_source"
           ./configure \
-            --prefix="$PREFIX" \
+            --prefix="$INSTALL_DIR" \
             --pkg-config-flags="--static" \
-            --target-os=mingw32 \
-            --arch=x86_64 \
+            --extra-libs="-static -lwinpthread -lm" \
+            --extra-cflags="-static" \
+            --bindir="$INSTALL_DIR/bin" \
             --enable-gpl \
+            --enable-libx265 \
+            --enable-libx264 \
+            --enable-libfdk-aac \
             --enable-nonfree \
             --enable-static \
             --disable-shared \
-            --enable-libass \
-            --enable-libfreetype \
+            --enable-version3 \
             --enable-libmp3lame \
-            --enable-libvorbis \
-            --enable-libx264 \
-            --enable-libx265
+            --enable-libopus \
+            --enable-zlib \
+            --enable-openssl \
+            --enable-libxml2
           make -j$(nproc)
           make install
+          # Clean up source
+          cd ..
+          rm -rf ffmpeg_source
 
-      - name: Create Archive (Windows)
-        shell: pwsh
+      - name: Create FFmpeg Archive
+        id: create_archive
+        shell: msys2 {0}
         run: |
-          $ARCHIVE_NAME="ffmpeg-windows-latest-dev-$(Get-Date -Format 'yyyyMMdd')-${{ env.GITHUB_SHA }}"
-          $BIN_PATH = "${{ env.BUILD_DIR_WINDOWS }}\bin"
-          Compress-Archive -Path "$BIN_PATH\ffmpeg.exe", "$BIN_PATH\ffprobe.exe" -DestinationPath "$env:GITHUB_WORKSPACE\$ARCHIVE_NAME.zip" -Force
-          echo "WINDOWS_ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $env:GITHUB_ENV
+          cd "$INSTALL_DIR"
+          VERSION=$(./bin/ffmpeg -version | head -n 1 | awk '{print $3}')
+          ARCHIVE_NAME="ffmpeg-h265-$(date +%Y%m%d)-${VERSION}-windows-x64.zip"
+          # Only package the necessary files
+          mkdir -p package
+          cp -r bin package/
+          zip -r "$ARCHIVE_NAME" package
 
-      - name: Upload Artifact (Windows)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ffmpeg-windows
-          path: ${{ env.WINDOWS_ARCHIVE_NAME }}
+          echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_NAME=FFmpeg with H.265 (Windows) built on $(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
 
-  create_release:
-    name: Create GitHub Release
-    needs: [build_ffmpeg_linux, build_ffmpeg_windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Display structure of downloaded files
-        run: ls -R artifacts
-
-      - name: Create Release and Upload Assets
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-latest-dev-${{ github.sha }}
-          name: FFmpeg All Latest Development Build (Commit ${{ github.sha }})
+          tag_name: ${{ steps.create_archive.outputs.RELEASE_TAG }}
+          name: ${{ steps.create_archive.outputs.RELEASE_NAME }}
           body: |
-            Automated FFmpeg build using LATEST DEVELOPMENT sources for FFmpeg, x264, and x265.
-            This is NOT a stable release and may be unstable.
-            Timestamp: $(date +%Y-%m-%d_%H:%M:%S_UTC)
-            x264 source: Latest development (master/default branch)
-            x265 source: Latest development (master/default branch)
-            FFmpeg source: Latest daily snapshot
-          files: |
-            artifacts/ffmpeg-linux/*.tar.gz
-            artifacts/ffmpeg-windows/*.zip
+            This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
+            Built from FFmpeg source on $(date +%Y-%m-%d).
+            Features included:
+            - H.265/x265 encoding
+            - H.264/x264 encoding
+            - AAC (FDK-AAC) encoding
+            - MP3 (LAME) encoding
+            - Opus audio codec
+          files: ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
