@@ -1,0 +1,114 @@
+name: Build FFmpeg with H.265 Support
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_os:
+        description: 'Pilih sistem operasi untuk build (linux, windows, all)'
+        required: true
+        default: 'all'
+
+jobs:
+  get_latest_version:
+    runs-on: ubuntu-latest
+    outputs:
+      ffmpeg_version: ${{ steps.set_version.outputs.ffmpeg_version }}
+    steps:
+      - name: Ambil versi terbaru FFmpeg
+        id: set_version
+        run: |
+          latest=$(curl -s https://ffmpeg.org/releases/ | grep -oP 'ffmpeg-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=\.tar\.bz2)' | sort -V | tail -1)
+          echo "ffmpeg_version=$latest" >> $GITHUB_OUTPUT
+
+  build-linux:
+    needs: get_latest_version
+    if: ${{ github.event.inputs.target_os == 'linux' || github.event.inputs.target_os == 'all' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instal dependensi
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake build-essential cmake git libtool pkg-config texinfo wget yasm nasm libx264-dev libx265-dev
+      - name: Unduh dan ekstrak FFmpeg
+        run: |
+          wget https://ffmpeg.org/releases/ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}.tar.bz2
+          tar xjf ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}.tar.bz2
+      - name: Build FFmpeg dengan dukungan H.265
+        run: |
+          cd ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}
+          ./configure --enable-gpl --enable-libx265 --enable-libx264 --enable-nonfree
+          make -j$(nproc)
+          make install
+      - name: Arsipkan hasil build
+        run: |
+          tar czf ffmpeg-linux.tar.gz /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+      - name: Unggah artefak
+        uses: actions/upload-artifact@v3
+        with:
+          name: ffmpeg-linux
+          path: ffmpeg-linux.tar.gz
+
+  build-windows:
+    needs: get_latest_version
+    if: ${{ github.event.inputs.target_os == 'windows' || github.event.inputs.target_os == 'all' }}
+    runs-on: windows-latest
+    steps:
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            base-devel
+            git
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkg-config
+            mingw-w64-x86_64-yasm
+            mingw-w64-x86_64-libx264
+            mingw-w64-x86_64-libx265
+      - name: Build FFmpeg dengan dukungan H.265
+        shell: msys2 {0}
+        run: |
+          wget https://ffmpeg.org/releases/ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}.tar.bz2
+          tar xjf ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}.tar.bz2
+          cd ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}
+          ./configure --prefix=/mingw64 --target-os=mingw32 --arch=x86_64 --enable-gpl --enable-libx264 --enable-libx265 --enable-nonfree
+          make -j$(nproc)
+          make install
+      - name: Arsipkan hasil build
+        run: |
+          Compress-Archive -Path C:\msys64\mingw64\bin\ffmpeg.exe,C:\msys64\mingw64\bin\ffprobe.exe -DestinationPath ffmpeg-windows.zip
+      - name: Unggah artefak
+        uses: actions/upload-artifact@v3
+        with:
+          name: ffmpeg-windows
+          path: ffmpeg-windows.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Unduh artefak Linux
+        uses: actions/download-artifact@v3
+        with:
+          name: ffmpeg-linux
+          path: artifacts
+      - name: Unduh artefak Windows
+        uses: actions/download-artifact@v3
+        with:
+          name: ffmpeg-windows
+          path: artifacts
+      - name: Buat rilis GitHub
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ffmpeg-${{ needs.get_latest_version.outputs.ffmpeg_version }}
+          name: FFmpeg ${{ needs.get_latest_version.outputs.ffmpeg_version }}
+          body: |
+            Build otomatis FFmpeg dengan dukungan H.265 (libx265).
+          files: |
+            artifacts/ffmpeg-linux.tar.gz
+            artifacts/ffmpeg-windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
