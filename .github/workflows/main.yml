@@ -54,16 +54,21 @@ jobs:
           echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
 
-      - name: Clone and Build libx265
+      - name: Clone and Build libx265 (using CMake)
         shell: msys2 {0}
         run: |
           cd "$INSTALL_DIR"
-          git clone https://github.com/videolan/x265.git
-          # Jalur yang benar untuk script build di lingkungan MSYS2 adalah build/msys
-          cd x265/build/msys
-          ./make-Makefiles.bash
+          git clone https://github.com/videolan/x265.git x265_source
+          mkdir -p x265_build
+          cd x265_build
+          # Menggunakan CMake untuk mengkonfigurasi dan membangun x265
+          cmake -G "MinGW Makefiles" ../x265_source/source \
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+            -DENABLE_SHARED=OFF \
+            -DENABLE_CLI=OFF
           make -j$(nproc)
           make install
+          # Pastikan pkg-config menemukan file .pc
           cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
 
       - name: Clone FFmpeg
