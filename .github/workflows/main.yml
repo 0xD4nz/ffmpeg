@@ -1,78 +1,152 @@
-name: Auto Build & Release FFmpeg (Windows, H.265)
+name: Build FFmpeg with H.265 (Windows) and Upload to Release
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  build:
-    runs-on: windows-latest
+  build_ffmpeg_windows:
+    runs-on: windows-latest # Menggunakan runner Windows
+
     steps:
-    - name: Checkout repo
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Set up MSYS2
-      uses: msys2/setup-msys2@v2
-      with:
-        update: true
-        install: >-
-          git
-          make
-          pkg-config
-          diffutils
-          nasm
-          mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-yasm
-          mingw-w64-x86_64-nasm
-          mingw-w64-x86_64-x265
+      - name: Set up MSYS2 Environment
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64 # Menggunakan lingkungan MinGW 64-bit
+          update: true
+          install: >- # Daftar paket yang akan diinstal menggunakan pacman
+            git
+            make
+            automake
+            autoconf
+            libtool
+            pkg-config
+            diffutils
+            yasm
+            nasm
+            cmake
+            gcc
+            mingw-w64-x86_64-toolchain # Kumpulan alat pengembangan
+            mingw-w64-x86_64-x264
+            mingw-w64-x86_64-vpx
+            mingw-w64-x86_64-fdk-aac # Optional, for better AAC encoding. Requires non-free license if distributing.
+            mingw-w64-x86_64-opus
+            mingw-w64-x86_64-lame
+            mingw-w64-x86_64-vorbis
+            mingw-w64-x86_64-ogg
+            mingw-w64-x86_64-theora
+            mingw-w64-x86_64-ass
+            mingw-w64-x86_64-freetype
+            mingw-w64-x86_64-fontconfig
+            mingw-w64-x86_64-fribidi
+            mingw-w64-x86_64-harfbuzz
+            mingw-w64-x86_64-sdl2
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-bzip2
+            mingw-w64-x86_64-lzma
 
-    - name: Clone FFmpeg
-      run: |
-        git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg
+      - name: Set up Environment Variables for Custom Builds
+        shell: msys2 {0}
+        run: |
+          export INSTALL_DIR=$(pwd)/ffmpeg_build
+          export PATH="$INSTALL_DIR/bin:$PATH"
+          export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
+          mkdir -p "$INSTALL_DIR"
+          # Simpan variabel untuk langkah berikutnya
+          echo "INSTALL_DIR=$(pwd)/ffmpeg_build" >> "$GITHUB_ENV"
+          echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
 
-    - name: Build FFmpeg (H.265)
-      shell: msys2 {0}
-      run: |
-        cd ffmpeg
-        ./configure \
-          --arch=x86_64 \
-          --target-os=mingw32 \
-          --cross-prefix=x86_64-w64-mingw32- \
-          --enable-shared \
-          --enable-gpl \
-          --enable-version3 \
-          --enable-nonfree \
-          --enable-libx265 \
-          --prefix=/opt/ffmpeg
-        make -j$(nproc)
-        make install
+      - name: Clone and Build libx265
+        shell: msys2 {0} # Jalankan perintah di lingkungan MSYS2
+        run: |
+          cd "$INSTALL_DIR"
+          git clone https://github.com/videolan/x265.git
+          cd x265/build/msys
+          # Ubah makefile script for MSYS2
+          ./make-Makefiles.bash
+          make -j$(nproc)
+          make install
+          # Pastikan pkg-config menemukan file .pc
+          cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
 
-    - name: Zip binaries
-      run: |
-        mkdir -p ffmpeg-dist/bin
-        cp -r /opt/ffmpeg/bin/* ffmpeg-dist/bin/
-        7z a ffmpeg-h265-win64.zip ./ffmpeg-dist/*
+      - name: Clone FFmpeg
+        shell: msys2 {0}
+        run: |
+          cd "$INSTALL_DIR"
+          git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg_source
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ffmpeg-h265-windows
-        path: ffmpeg-h265-win64.zip
+      - name: Configure and Build FFmpeg
+        shell: msys2 {0}
+        run: |
+          cd "$INSTALL_DIR/ffmpeg_source"
+          ./configure \
+            --prefix="$INSTALL_DIR" \
+            --pkg-config-flags="--static" \
+            --extra-libs="-static -lwinpthread -lm" \
+            --extra-cflags="-static" \
+            --bindir="$INSTALL_DIR/bin" \
+            --enable-gpl \
+            --enable-libx265 \
+            --enable-libx264 \
+            --enable-libvpx \
+            --enable-libfdk-aac \
+            --enable-nonfree \
+            --enable-shared \
+            --enable-version3 \
+            --enable-avisynth \
+            --enable-fontconfig \
+            --enable-libass \
+            --enable-libfreetype \
+            --enable-libharfbuzz \
+            --enable-libmp3lame \
+            --enable-libopus \
+            --enable-libtheora \
+            --enable-libvorbis \
+            --enable-zlib \
+            --enable-openssl \
+            --enable-sdl2 \
+            --enable-libxml2 \
+            --enable-iconv \
+            --enable-libbluray \
+            --enable-libsrt \
+            --enable-libssh \
+            --enable-libwebp \
+            --enable-libxvid
+          make -j$(nproc)
+          make install
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ffmpeg-h265-windows
+      - name: Create FFmpeg Archive
+        id: create_archive
+        shell: msys2 {0}
+        run: |
+          cd "$INSTALL_DIR"
+          VERSION=$(./bin/ffmpeg -version | head -n 1 | awk '{print $3}')
+          ARCHIVE_NAME="ffmpeg-h265-$(date +%Y%m%d)-${VERSION}-windows-x64.zip"
+          zip -r "$ARCHIVE_NAME" bin lib share # Menggunakan zip untuk Windows
 
-    - name: Auto-create release
-      uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        files: ffmpeg-h265-win64.zip
-        generate_release_notes: true
+          echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_NAME=FFmpeg with H.265 (Windows) built on $(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.create_archive.outputs.RELEASE_TAG }}
+          name: ${{ steps.create_archive.outputs.RELEASE_NAME }}
+          body: |
+            This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
+            Built from FFmpeg source on $(date +%Y-%m-%d).
+          files: |
+            ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
