@@ -8,7 +8,7 @@ on:
 
 jobs:
   build_ffmpeg_windows:
-    runs-on: windows-latest # Menggunakan runner Windows
+    runs-on: windows-latest
 
     steps:
       - name: Checkout Repository
@@ -19,9 +19,9 @@ jobs:
       - name: Set up MSYS2 Environment
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64 # Menggunakan lingkungan MinGW 64-bit
+          msystem: MINGW64
           update: true
-          install: >- # Daftar paket yang akan diinstal menggunakan pacman
+          install: >-
             git
             make
             automake
@@ -33,10 +33,10 @@ jobs:
             nasm
             cmake
             gcc
-            mingw-w64-x86_64-toolchain # Kumpulan alat pengembangan
+            mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-x264
             mingw-w64-x86_64-vpx
-            mingw-w64-x86_64-fdk-aac # Optional, for better AAC encoding. Requires non-free license if distributing.
+            mingw-w64-x86_64-fdk-aac
             mingw-w64-x86_64-opus
             mingw-w64-x86_64-lame
             mingw-w64-x86_64-vorbis
@@ -61,22 +61,19 @@ jobs:
           export PATH="$INSTALL_DIR/bin:$PATH"
           export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
           mkdir -p "$INSTALL_DIR"
-          # Simpan variabel untuk langkah berikutnya
           echo "INSTALL_DIR=$(pwd)/ffmpeg_build" >> "$GITHUB_ENV"
           echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
 
       - name: Clone and Build libx265
-        shell: msys2 {0} # Jalankan perintah di lingkungan MSYS2
+        shell: msys2 {0}
         run: |
           cd "$INSTALL_DIR"
           git clone https://github.com/videolan/x265.git
           cd x265/build/msys
-          # Ubah makefile script for MSYS2
           ./make-Makefiles.bash
           make -j$(nproc)
           make install
-          # Pastikan pkg-config menemukan file .pc
           cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
 
       - name: Clone FFmpeg
@@ -132,7 +129,7 @@ jobs:
           cd "$INSTALL_DIR"
           VERSION=$(./bin/ffmpeg -version | head -n 1 | awk '{print $3}')
           ARCHIVE_NAME="ffmpeg-h265-$(date +%Y%m%d)-${VERSION}-windows-x64.zip"
-          zip -r "$ARCHIVE_NAME" bin lib share # Menggunakan zip untuk Windows
+          zip -r "$ARCHIVE_NAME" bin lib share
 
           echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
@@ -150,3 +147,4 @@ jobs:
             ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
