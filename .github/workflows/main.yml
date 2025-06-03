@@ -61,8 +61,8 @@ jobs:
           git clone https://github.com/videolan/x265.git x265_source
           mkdir -p x265_build
           cd x265_build
-          # Menggunakan CMake untuk mengkonfigurasi dan membangun x265
-          cmake -G "MinGW Makefiles" ../x265_source/source \
+          # Menggunakan generator "Unix Makefiles" yang lebih kompatibel di lingkungan MSYS2
+          cmake -G "Unix Makefiles" ../x265_source/source \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DENABLE_SHARED=OFF \
             -DENABLE_CLI=OFF
@@ -113,17 +113,3 @@ jobs:
 
           echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          echo "RELEASE_NAME=FFmpeg with H.265 (Windows) built on $(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.create_archive.outputs.RELEASE_TAG }}
-          name: ${{ steps.create_archive.outputs.RELEASE_NAME }}
-          body: |
-            This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
-            Built from FFmpeg source on $(date +%Y-%m-%d).
-          files: |
-            ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
