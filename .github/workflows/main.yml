@@ -35,24 +35,13 @@ jobs:
             gcc
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-x264
-            mingw-w64-x86_64-vpx
             mingw-w64-x86_64-fdk-aac
             mingw-w64-x86_64-opus
             mingw-w64-x86_64-lame
-            mingw-w64-x86_64-vorbis
-            mingw-w64-x86_64-ogg
-            mingw-w64-x86_64-theora
-            mingw-w64-x86_64-ass
-            mingw-w64-x86_64-freetype
-            mingw-w64-x86_64-fontconfig
-            mingw-w64-x86_64-fribidi
-            mingw-w64-x86_64-harfbuzz
-            mingw-w64-x86_64-sdl2
             mingw-w64-x86_64-openssl
             mingw-w64-x86_64-zlib
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-bzip2
-            mingw-w64-x86_64-lzma
 
       - name: Set up Environment Variables for Custom Builds
         shell: msys2 {0}
@@ -95,30 +84,15 @@ jobs:
             --enable-gpl \
             --enable-libx265 \
             --enable-libx264 \
-            --enable-libvpx \
             --enable-libfdk-aac \
             --enable-nonfree \
             --enable-shared \
             --enable-version3 \
-            --enable-avisynth \
-            --enable-fontconfig \
-            --enable-libass \
-            --enable-libfreetype \
-            --enable-libharfbuzz \
             --enable-libmp3lame \
             --enable-libopus \
-            --enable-libtheora \
-            --enable-libvorbis \
             --enable-zlib \
             --enable-openssl \
-            --enable-sdl2 \
-            --enable-libxml2 \
-            --enable-iconv \
-            --enable-libbluray \
-            --enable-libsrt \
-            --enable-libssh \
-            --enable-libwebp \
-            --enable-libxvid
+            --enable-libxml2
           make -j$(nproc)
           make install
 
@@ -147,4 +121,3 @@ jobs:
             ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
