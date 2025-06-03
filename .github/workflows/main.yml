@@ -1,0 +1,236 @@
+name: Build and Release FFmpeg Full
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  # Versi bisa disesuaikan
+  X264_VERSION: stable # Menggunakan branch stabil terakhir, atau ganti dengan tag spesifik seperti '0.164.3095'
+  X265_VERSION: 3.5    # Ganti dengan tag rilis x265 yang diinginkan
+  FFMPEG_VERSION: n6.1 # Ganti dengan tag rilis FFmpeg yang diinginkan
+  # NASM_VERSION: 2.16.01 # Jika diperlukan versi spesifik NASM
+
+jobs:
+  build_ffmpeg_linux:
+    name: Build FFmpeg (Linux)
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04 # Menggunakan container untuk kontrol lingkungan yang lebih baik
+
+    steps:
+      - name: Install System Dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq \
+            autoconf automake build-essential cmake git libass-dev libfreetype6-dev \
+            libgnutls28-dev libmp3lame-dev libsdl2-dev libtool libva-dev libvdpau-dev \
+            libvorbis-dev libxcb1-dev libxcb-shm0-dev libxcb-xfixes0-dev \
+            meson ninja-build pkg-config texinfo wget yasm zlib1g-dev curl \
+            nasm # nasm penting untuk x264/x265
+
+      - name: Create Build Directories
+        run: mkdir -p ~/ffmpeg_sources ~/ffmpeg_build
+
+      # Jika perlu NASM versi spesifik:
+      # - name: Build NASM
+      #   run: |
+      #     cd ~/ffmpeg_sources
+      #     wget https://www.nasm.us/pub/nasm/releasebuilds/${{ env.NASM_VERSION }}/nasm-${{ env.NASM_VERSION }}.tar.bz2
+      #     tar xjvf nasm-${{ env.NASM_VERSION }}.tar.bz2
+      #     cd nasm-${{ env.NASM_VERSION }}
+      #     ./autogen.sh
+      #     ./configure --prefix="$HOME/ffmpeg_build" --bindir="$HOME/ffmpeg_build/bin"
+      #     make -j$(nproc)
+      #     make install
+      #   env:
+      #     PATH: ${{ env.HOME }}/ffmpeg_build/bin:${{ env.PATH }}
+
+      - name: Build libx264
+        run: |
+          cd ~/ffmpeg_sources
+          git clone --branch ${{ env.X264_VERSION }} --depth 1 https://code.videolan.org/videolan/x264.git
+          cd x264
+          PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
+            --prefix="$HOME/ffmpeg_build" \
+            --bindir="$HOME/ffmpeg_build/bin" \
+            --enable-static \
+            --enable-pic \
+            --disable-cli
+          make -j$(nproc)
+          make install
+        env:
+          PATH: ${{ env.HOME }}/ffmpeg_build/bin:${{ env.PATH }} # Agar bisa menemukan nasm dari build custom jika ada
+
+      - name: Build libx265
+        run: |
+          cd ~/ffmpeg_sources
+          # Jika x265 menggunakan hg (mercurial): apt-get install -y mercurial
+          # Untuk x265 dari bitbucket (jika repo utama):
+          # hg clone https://bitbucket.org/multicoreware/x265_git
+          # cd x265_git/build/linux
+          # Atau dari mirror/rilis:
+          wget -O x265_${{ env.X265_VERSION }}.tar.gz https://bitbucket.org/multicoreware/x265_git/get/${{ env.X265_VERSION }}.tar.gz
+          mkdir x265_source && tar -xvf x265_${{ env.X265_VERSION }}.tar.gz -C x265_source --strip-components=1
+          cd x265_source/build/linux
+          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED:BOOL=OFF -DENABLE_CLI:BOOL=OFF ../../source
+          make -j$(nproc)
+          make install
+        env:
+          PATH: ${{ env.HOME }}/ffmpeg_build/bin:${{ env.PATH }}
+
+      - name: Build FFmpeg
+        run: |
+          cd ~/ffmpeg_sources
+          curl -O -L https://ffmpeg.org/releases/ffmpeg-${{ env.FFMPEG_VERSION }}.tar.bz2
+          tar xjvf ffmpeg-${{ env.FFMPEG_VERSION }}.tar.bz2
+          cd ffmpeg-${{ env.FFMPEG_VERSION }}
+          PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
+            --prefix="$HOME/ffmpeg_build" \
+            --pkg-config-flags="--static" \
+            --extra-cflags="-I$HOME/ffmpeg_build/include" \
+            --extra-ldflags="-L$HOME/ffmpeg_build/lib" \
+            --bindir="$HOME/ffmpeg_build/bin" \
+            --enable-gpl \
+            --enable-libass \
+            --enable-libfreetype \
+            --enable-libmp3lame \
+            --enable-libvorbis \
+            --enable-libx264 \
+            --enable-libx265 \
+            --enable-nonfree # Perlu untuk beberapa konfigurasi libx264/x265
+          make -j$(nproc)
+          make install
+        env:
+          PATH: ${{ env.HOME }}/ffmpeg_build/bin:${{ env.PATH }}
+
+      - name: Create Archive (Linux)
+        run: |
+          cd ~/ffmpeg_build/bin
+          tar -czvf $GITHUB_WORKSPACE/ffmpeg-linux-${{ github.ref_name }}.tar.gz ffmpeg ffprobe ffplay # Sesuaikan jika ada binary lain
+
+      - name: Upload Artifact (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-linux
+          path: ffmpeg-linux-${{ github.ref_name }}.tar.gz
+
+  build_ffmpeg_windows:
+    name: Build FFmpeg (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4 # Hanya jika ada skrip di repo Anda, jika tidak, tidak perlu
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git
+            make
+            cmake
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-yasm
+            mingw-w64-x86_64-nasm
+            # Untuk x265 mungkin perlu mingw-w64-x86_64-mercurial jika clone dari bitbucket hg
+
+      - name: Build libx264 (Windows)
+        shell: msys2 {0}
+        run: |
+          cd /tmp
+          git clone --branch ${{ env.X264_VERSION }} --depth 1 https://code.videolan.org/videolan/x264.git
+          cd x264
+          ./configure \
+            --prefix=/mingw64/custom_build \
+            --host=x86_64-w64-mingw32 \
+            --enable-static \
+            --enable-pic \
+            --disable-cli
+          make -j$(nproc)
+          make install
+
+      - name: Build libx265 (Windows)
+        shell: msys2 {0}
+        run: |
+          cd /tmp
+          curl -L -o x265_${{ env.X265_VERSION }}.tar.gz https://bitbucket.org/multicoreware/x265_git/get/${{ env.X265_VERSION }}.tar.gz
+          mkdir x265_source && tar -xzf x265_${{ env.X265_VERSION }}.tar.gz -C x265_source --strip-components=1
+          cd x265_source/build/msys
+          # Atau gunakan direktori build yang sesuai, misal 'linux' jika scriptnya generik dan cmake path disesuaikan
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=/mingw64/custom_build -DENABLE_SHARED:BOOL=OFF -DENABLE_CLI:BOOL=OFF ../../source
+          make -j$(nproc)
+          make install
+
+      - name: Build FFmpeg (Windows)
+        shell: msys2 {0}
+        run: |
+          cd /tmp
+          curl -O -L https://ffmpeg.org/releases/ffmpeg-${{ env.FFMPEG_VERSION }}.tar.bz2
+          tar xjvf ffmpeg-${{ env.FFMPEG_VERSION }}.tar.bz2
+          cd ffmpeg-${{ env.FFMPEG_VERSION }}
+          export PKG_CONFIG_PATH="/mingw64/custom_build/lib/pkgconfig"
+          ./configure \
+            --prefix=/mingw64/custom_build \
+            --extra-cflags="-I/mingw64/custom_build/include" \
+            --extra-ldflags="-L/mingw64/custom_build/lib" \
+            --target-os=mingw32 --arch=x86_64 \
+            --enable-gpl \
+            --enable-libass \
+            --enable-libfreetype \
+            --enable-libmp3lame \
+            --enable-libvorbis \
+            --enable-libx264 \
+            --enable-libx265 \
+            --enable-nonfree \
+            --enable-static \
+            --disable-shared # Contoh build statis
+            # --enable-cuda-nvcc # Contoh jika ingin build dengan dukungan NVENC (perlu CUDA toolkit)
+          make -j$(nproc)
+          make install
+
+      - name: Create Archive (Windows)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path /msys64/mingw64/custom_build/bin/ffmpeg.exe, /msys64/mingw64/custom_build/bin/ffprobe.exe, /msys64/mingw64/custom_build/bin/ffplay.exe -DestinationPath $env:GITHUB_WORKSPACE\ffmpeg-windows-${{ github.ref_name }}.zip
+
+      - name: Upload Artifact (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-windows
+          path: ffmpeg-windows-${{ github.ref_name }}.zip
+
+  create_release:
+    name: Create GitHub Release
+    needs: [build_ffmpeg_linux, build_ffmpeg_windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Diperlukan untuk membuat rilis
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/ffmpeg-linux/ffmpeg-linux-*.tar.gz
+            artifacts/ffmpeg-windows/ffmpeg-windows-*.zip
+          body: |
+            FFmpeg ${{ github.ref_name }} build with H.264 (libx264) and H.265 (libx265) support.
+            - Linux (Ubuntu 22.04 based)
+            - Windows (MinGW-w64)
+
+            x264 version: ${{ env.X264_VERSION }}
+            x265 version: ${{ env.X265_VERSION }}
+            FFmpeg version: ${{ env.FFMPEG_VERSION }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
