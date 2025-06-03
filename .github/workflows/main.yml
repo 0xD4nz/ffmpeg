@@ -17,12 +17,30 @@ on:
         required: true
 
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Setup build matrix
+        id: set-matrix
+        run: |
+          matrix=()
+          if [ "${{ github.event.inputs.build_linux }}" = "true" ]; then
+            matrix+=("ubuntu-latest")
+          fi
+          if [ "${{ github.event.inputs.build_windows }}" = "true" ]; then
+            matrix+=("windows-latest")
+          fi
+          echo "matrix=${matrix[*]}" >> $GITHUB_OUTPUT
+          echo "Selected OS: ${matrix[*]}"
+
   build:
+    needs: setup
     strategy:
       matrix:
-        os: ${{ fromJSON( needs.setup.outputs.matrix ) }}
+        os: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    needs: setup
     
     steps:
     - name: Checkout repository
@@ -105,8 +123,8 @@ jobs:
     - name: Verify FFmpeg build
       run: |
         ffmpeg -version
-        ffmpeg -codecs | grep hevc
-        ffmpeg -codecs | grep h265
+        ffmpeg -codecs | grep hevc || echo "HEVC codec not found"
+        ffmpeg -codecs | grep h265 || echo "H265 codec not found"
     
     # Package untuk Linux
     - name: Package Linux binaries
@@ -135,24 +153,6 @@ jobs:
         path: |
           ${{ runner.os == 'Linux' && 'ffmpeg_h265_linux.tar.gz' || 'ffmpeg_h265_windows.zip' }}
 
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Setup build matrix
-        id: set-matrix
-        run: |
-          matrix=[]
-          if ${{ github.event.inputs.build_linux == 'true' }}; then
-            matrix+=("ubuntu-latest")
-          fi
-          if ${{ github.event.inputs.build_windows == 'true' }}; then
-            matrix+=("windows-latest")
-          fi
-          echo "matrix=${matrix}" | tee -a $GITHUB_OUTPUT
-          echo "matrix=${matrix}"
-
   release:
     needs: [build]
     runs-on: ubuntu-latest
@@ -163,15 +163,16 @@ jobs:
           path: artifacts
 
       - name: Create Release
+        if: ${{ always() && (github.event.inputs.build_linux || github.event.inputs.build_windows) }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
           name: FFmpeg with H.265 Build ${{ github.event.inputs.release_tag }}
           body: |
             FFmpeg dengan dukungan H.265/HEVC
-            Dibangun untuk: ${{ github.event.inputs.build_linux && 'Linux' }} ${{ github.event.inputs.build_windows && 'Windows' }}
+            Dibangun untuk: ${{ github.event.inputs.build_linux && 'Linux' || '' }} ${{ github.event.inputs.build_windows && 'Windows' || '' }}
           files: |
-            artifacts/ffmpeg_h265_linux/ffmpeg_h265_linux.tar.gz
-            artifacts/ffmpeg_h265_windows/ffmpeg_h265_windows.zip
+            artifacts/ffmpeg_h265_ubuntu-latest/ffmpeg_h265_linux.tar.gz
+            artifacts/ffmpeg_h265_windows-latest/ffmpeg_h265_windows.zip
           draft: false
           prerelease: false
