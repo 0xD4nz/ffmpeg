@@ -59,6 +59,7 @@ jobs:
         run: |
           cd "$INSTALL_DIR"
           git clone https://github.com/videolan/x265.git
+          # Jalur yang benar untuk script build di lingkungan MSYS2 adalah build/msys
           cd x265/build/msys
           ./make-Makefiles.bash
           make -j$(nproc)
