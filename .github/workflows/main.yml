@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       build_linux:
-        description: "Build untuk Linux (true/false)"
+        description: "Build for Linux (true/false)"
         type: boolean
         default: true
       build_windows:
-        description: "Build untuk Windows (true/false)"
+        description: "Build for Windows (true/false)"
         type: boolean
         default: true
       release_tag:
-        description: "Tag untuk release (contoh: v1.0.0)"
+        description: "Release tag (e.g., v1.0.0)"
         type: string
         required: true
 
@@ -25,15 +25,22 @@ jobs:
       - name: Setup build matrix
         id: set-matrix
         run: |
-          matrix=()
-          if [ "${{ github.event.inputs.build_linux }}" = "true" ]; then
-            matrix+=("ubuntu-latest")
+          # Initialize JSON array
+          matrix_json='[]'
+          
+          # Add Linux if selected
+          if ${{ github.event.inputs.build_linux }}; then
+            matrix_json=$(echo $matrix_json | jq '. += ["ubuntu-latest"]')
           fi
-          if [ "${{ github.event.inputs.build_windows }}" = "true" ]; then
-            matrix+=("windows-latest")
+          
+          # Add Windows if selected
+          if ${{ github.event.inputs.build_windows }}; then
+            matrix_json=$(echo $matrix_json | jq '. += ["windows-latest"]')
           fi
-          echo "matrix=${matrix[*]}" >> $GITHUB_OUTPUT
-          echo "Selected OS: ${matrix[*]}"
+          
+          # Output the JSON matrix
+          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+          echo "Build matrix: $matrix_json"
 
   build:
     needs: setup
@@ -46,8 +53,8 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # Install dependencies untuk Linux
-    - name: Install dependencies (Linux)
+    # Install dependencies for Linux
+    - name: Install Linux dependencies
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update -qq
@@ -67,10 +74,11 @@ jobs:
           libvpx-dev \
           libfdk-aac-dev \
           libmp3lame-dev \
-          libopus-dev
+          libopus-dev \
+          jq
     
-    # Install dependencies untuk Windows
-    - name: Install dependencies (Windows)
+    # Install dependencies for Windows
+    - name: Install Windows dependencies
       if: runner.os == 'Windows'
       run: |
         choco install -y --no-progress \
@@ -85,12 +93,13 @@ jobs:
         git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg
         cd ffmpeg
     
-    # Build untuk Linux
+    # Build for Linux
     - name: Build FFmpeg (Linux)
       if: runner.os == 'Linux'
       run: |
         cd ffmpeg
         ./configure \
+          --prefix=/usr/local \
           --enable-gpl \
           --enable-libx264 \
           --enable-libx265 \
@@ -102,7 +111,7 @@ jobs:
         make -j$(nproc)
         sudo make install
     
-    # Build untuk Windows
+    # Build for Windows
     - name: Build FFmpeg (Windows)
       if: runner.os == 'Windows'
       run: |
@@ -123,10 +132,10 @@ jobs:
     - name: Verify FFmpeg build
       run: |
         ffmpeg -version
-        ffmpeg -codecs | grep hevc || echo "HEVC codec not found"
-        ffmpeg -codecs | grep h265 || echo "H265 codec not found"
+        ffmpeg -codecs | grep -i hevc || echo "HEVC codec not found"
+        ffmpeg -codecs | grep -i h265 || echo "H265 codec not found"
     
-    # Package untuk Linux
+    # Package for Linux
     - name: Package Linux binaries
       if: runner.os == 'Linux'
       run: |
@@ -136,14 +145,14 @@ jobs:
         cp /usr/local/bin/ffplay ffmpeg_build/ || true
         tar -czvf ffmpeg_h265_linux.tar.gz ffmpeg_build/*
     
-    # Package untuk Windows
+    # Package for Windows
     - name: Package Windows binaries
       if: runner.os == 'Windows'
       run: |
         mkdir ffmpeg_build
         copy ffmpeg\ffmpeg.exe ffmpeg_build\
         copy ffmpeg\ffprobe.exe ffmpeg_build\
-        copy ffmpeg\ffplay.exe ffmpeg_build\ || echo "FFplay tidak tersedia"
+        copy ffmpeg\ffplay.exe ffmpeg_build\ || echo "FFplay not available"
         7z a ffmpeg_h265_windows.zip ffmpeg_build\*
     
     - name: Upload artifacts
@@ -157,22 +166,25 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
           path: artifacts
-
+          
       - name: Create Release
-        if: ${{ always() && (github.event.inputs.build_linux || github.event.inputs.build_windows) }}
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.release_tag }}
-          name: FFmpeg with H.265 Build ${{ github.event.inputs.release_tag }}
+          name: FFmpeg with H.265 (${{ github.event.inputs.release_tag }})
           body: |
-            FFmpeg dengan dukungan H.265/HEVC
-            Dibangun untuk: ${{ github.event.inputs.build_linux && 'Linux' || '' }} ${{ github.event.inputs.build_windows && 'Windows' || '' }}
+            FFmpeg with H.265/HEVC support
+            Built for:
+            ${{ github.event.inputs.build_linux && '- Linux' || '' }}
+            ${{ github.event.inputs.build_windows && '- Windows' || '' }}
+            
+            Build date: ${{ github.event.inputs.release_tag }}
           files: |
-            artifacts/ffmpeg_h265_ubuntu-latest/ffmpeg_h265_linux.tar.gz
-            artifacts/ffmpeg_h265_windows-latest/ffmpeg_h265_windows.zip
+            ${{ github.event.inputs.build_linux && 'artifacts/ffmpeg_h265_ubuntu-latest/ffmpeg_h265_linux.tar.gz' || '' }}
+            ${{ github.event.inputs.build_windows && 'artifacts/ffmpeg_h265_windows-latest/ffmpeg_h265_windows.zip' || '' }}
           draft: false
           prerelease: false
