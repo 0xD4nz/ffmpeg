@@ -1,190 +1,101 @@
-name: Build FFmpeg with H.265 and Release
+name: Build FFmpeg with H.265
 
 on:
   workflow_dispatch:
     inputs:
-      build_linux:
-        description: "Build for Linux (true/false)"
-        type: boolean
-        default: true
-      build_windows:
-        description: "Build for Windows (true/false)"
-        type: boolean
-        default: true
-      release_tag:
-        description: "Release tag (e.g., v1.0.0)"
-        type: string
+      build_target:
+        description: 'Select build target'
         required: true
+        type: choice
+        options:
+          - linux
+          - windows
+          - both
+        default: both
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Setup build matrix
-        id: set-matrix
-        run: |
-          # Initialize JSON array
-          matrix_json='[]'
-          
-          # Add Linux if selected
-          if ${{ github.event.inputs.build_linux }}; then
-            matrix_json=$(echo $matrix_json | jq '. += ["ubuntu-latest"]')
-          fi
-          
-          # Add Windows if selected
-          if ${{ github.event.inputs.build_windows }}; then
-            matrix_json=$(echo $matrix_json | jq '. += ["windows-latest"]')
-          fi
-          
-          # Output the JSON matrix
-          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
-          echo "Build matrix: $matrix_json"
-
   build:
-    needs: setup
     strategy:
       matrix:
-        os: ${{ fromJSON(needs.setup.outputs.matrix) }}
-    runs-on: ${{ matrix.os }}
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
-    # Install dependencies for Linux
-    - name: Install Linux dependencies
-      if: runner.os == 'Linux'
-      run: |
-        sudo apt-get update -qq
-        sudo apt-get install -y \
-          build-essential \
-          autoconf \
-          automake \
-          cmake \
-          git \
-          libtool \
-          pkg-config \
-          yasm \
-          nasm \
-          libx264-dev \
-          libx265-dev \
-          libnuma-dev \
-          libvpx-dev \
-          libfdk-aac-dev \
-          libmp3lame-dev \
-          libopus-dev \
-          jq
-    
-    # Install dependencies for Windows
-    - name: Install Windows dependencies
-      if: runner.os == 'Windows'
-      run: |
-        choco install -y --no-progress \
-          git \
-          cmake \
-          yasm \
-          nasm \
-          msys2
-        
-    - name: Clone FFmpeg
-      run: |
-        git clone --depth 1 https://git.ffmpeg.org/ffmpeg.git ffmpeg
-        cd ffmpeg
-    
-    # Build for Linux
-    - name: Build FFmpeg (Linux)
-      if: runner.os == 'Linux'
-      run: |
-        cd ffmpeg
-        ./configure \
-          --prefix=/usr/local \
-          --enable-gpl \
-          --enable-libx264 \
-          --enable-libx265 \
-          --enable-libvpx \
-          --enable-libfdk-aac \
-          --enable-libmp3lame \
-          --enable-libopus \
-          --enable-nonfree
-        make -j$(nproc)
-        sudo make install
-    
-    # Build for Windows
-    - name: Build FFmpeg (Windows)
-      if: runner.os == 'Windows'
-      run: |
-        cd ffmpeg
-        ./configure \
-          --toolchain=msvc \
-          --enable-gpl \
-          --enable-libx264 \
-          --enable-libx265 \
-          --enable-libvpx \
-          --enable-libfdk-aac \
-          --enable-libmp3lame \
-          --enable-libopus \
-          --enable-nonfree
-        make -j$(nproc)
-        make install
-    
-    - name: Verify FFmpeg build
-      run: |
-        ffmpeg -version
-        ffmpeg -codecs | grep -i hevc || echo "HEVC codec not found"
-        ffmpeg -codecs | grep -i h265 || echo "H265 codec not found"
-    
-    # Package for Linux
-    - name: Package Linux binaries
-      if: runner.os == 'Linux'
-      run: |
-        mkdir -p ffmpeg_build
-        cp /usr/local/bin/ffmpeg ffmpeg_build/
-        cp /usr/local/bin/ffprobe ffmpeg_build/
-        cp /usr/local/bin/ffplay ffmpeg_build/ || true
-        tar -czvf ffmpeg_h265_linux.tar.gz ffmpeg_build/*
-    
-    # Package for Windows
-    - name: Package Windows binaries
-      if: runner.os == 'Windows'
-      run: |
-        mkdir ffmpeg_build
-        copy ffmpeg\ffmpeg.exe ffmpeg_build\
-        copy ffmpeg\ffprobe.exe ffmpeg_build\
-        copy ffmpeg\ffplay.exe ffmpeg_build\ || echo "FFplay not available"
-        7z a ffmpeg_h265_windows.zip ffmpeg_build\*
-    
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
-      with:
-        name: ffmpeg_h265_${{ runner.os }}
-        path: |
-          ${{ runner.os == 'Linux' && 'ffmpeg_h265_linux.tar.gz' || 'ffmpeg_h265_windows.zip' }}
+        os:
+          - ubuntu-latest
+          - windows-latest
+        include:
+          - os: ubuntu-latest
+            target: linux
+            artifact_name: ffmpeg-linux
+          - os: windows-latest
+            target: windows
+            artifact_name: ffmpeg-windows
+        exclude:
+          - os: ubuntu-latest
+            when: ${{ github.event.inputs.build_target == 'windows' }}
+          - os: windows-latest
+            when: ${{ github.event.inputs.build_target == 'linux' }}
 
-  release:
-    needs: [build]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up dependencies (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config yasm nasm git curl libx265-dev
+
+      - name: Set up dependencies (Windows)
+        if: matrix.target == 'windows'
+        run: |
+          choco install -y mingw yasm nasm git
+          # Install libx265 via vcpkg
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          ./bootstrap-vcpkg.bat
+          ./vcpkg install x265
+
+      - name: Download FFmpeg source
+        run: |
+          curl -L https://ffmpeg.org/releases/ffmpeg-snapshot.tar.bz2 -o ffmpeg.tar.bz2
+          tar -xjf ffmpeg.tar.bz2
+          mv ffmpeg-* ffmpeg
+
+      - name: Configure FFmpeg (Linux)
+        if: matrix.target == 'linux'
+        run: |
+          cd ffmpeg
+          ./configure --enable-gpl --enable-libx265 --enable-nonfree
+          make -j$(nproc)
+
+      - name: Configure FFmpeg (Windows)
+        if: matrix.target == 'windows'
+        run: |
+          cd ffmpeg
+          ./configure --enable-gpl --enable-libx265 --enable-nonfree --toolchain=msvc
+          make -j4
+
+      - name: Package build
+        run: |
+          mkdir -p artifacts
+          cp ffmpeg/ffmpeg artifacts/
+          cd artifacts
+          zip -r ${{ matrix.artifact_name }}.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: artifacts
-          
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+          name: ${{ matrix.artifact_name }}
+          path: artifacts/${{ matrix.artifact_name }}.zip
+
+      - name: Create or update release
+        if: github.event.inputs.build_target != ''
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: FFmpeg with H.265 (${{ github.event.inputs.release_tag }})
-          body: |
-            FFmpeg with H.265/HEVC support
-            Built for:
-            ${{ github.event.inputs.build_linux && '- Linux' || '' }}
-            ${{ github.event.inputs.build_windows && '- Windows' || '' }}
-            
-            Build date: ${{ github.event.inputs.release_tag }}
-          files: |
-            ${{ github.event.inputs.build_linux && 'artifacts/ffmpeg_h265_ubuntu-latest/ffmpeg_h265_linux.tar.gz' || '' }}
-            ${{ github.event.inputs.build_windows && 'artifacts/ffmpeg_h265_windows-latest/ffmpeg_h265_windows.zip' || '' }}
+          tag_name: latest
+          name: FFmpeg Build with H.265
           draft: false
           prerelease: false
+          files: artifacts/${{ matrix.artifact_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
