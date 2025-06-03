@@ -21,6 +21,7 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          # Hapus 'cmake' dari daftar install di sini agar tidak konflik
           install: >-
             git
             make
@@ -31,7 +32,6 @@ jobs:
             diffutils
             yasm
             nasm
-            cmake
             gcc
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-x264
@@ -43,32 +43,39 @@ jobs:
             mingw-w64-x86_64-libxml2
             mingw-w64-x86_64-bzip2
 
+      - name: Install specific CMake version for x265
+        uses: lukka/get-cmake@v3.22.0 # Gunakan versi CMake yang lebih lama, contoh: 3.22.0
+        with:
+          cmakeVersion: 3.22.0 # Versi CMake yang lebih lama dari 4.0.2 dan cukup baru
+          # Set lokasi instalasi CMake, agar tidak konflik dengan PATH MSYS2
+          cmakeInstallationPath: ${{ runner.temp }}/cmake-specific
+
       - name: Set up Environment Variables for Custom Builds
         shell: msys2 {0}
         run: |
           export INSTALL_DIR=$(pwd)/ffmpeg_build
-          export PATH="$INSTALL_DIR/bin:$PATH"
+          # Tambahkan PATH CMake yang baru diinstal ke variabel lingkungan
+          export PATH="$INSTALL_DIR/bin:$PATH:$GITHUB_TEMP/cmake-specific/bin"
           export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
           mkdir -p "$INSTALL_DIR"
           echo "INSTALL_DIR=$(pwd)/ffmpeg_build" >> "$GITHUB_ENV"
-          echo "PATH=$INSTALL_DIR/bin:$PATH" >> "$GITHUB_ENV"
+          echo "PATH=$INSTALL_DIR/bin:$PATH:$GITHUB_TEMP/cmake-specific/bin" >> "$GITHUB_ENV"
           echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
 
-      - name: Clone and Build libx265 (using CMake)
+      - name: Clone and Build libx265 (using specific CMake)
         shell: msys2 {0}
         run: |
           cd "$INSTALL_DIR"
           git clone https://github.com/videolan/x265.git x265_source
           mkdir -p x265_build
           cd x265_build
-          # Menggunakan generator "Unix Makefiles" yang lebih kompatibel di lingkungan MSYS2
-          cmake -G "Unix Makefiles" ../x265_source/source \
+          # Panggil cmake dengan path eksplisit untuk memastikan versi yang benar
+          "${GITHUB_TEMP}/cmake-specific/bin/cmake" -G "Unix Makefiles" ../x265_source/source \
             -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
             -DENABLE_SHARED=OFF \
             -DENABLE_CLI=OFF
           make -j$(nproc)
           make install
-          # Pastikan pkg-config menemukan file .pc
           cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
 
       - name: Clone FFmpeg
@@ -113,3 +120,17 @@ jobs:
 
           echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
           echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_NAME=FFmpeg with H.265 (Windows) built on $(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.create_archive.outputs.RELEASE_TAG }}
+          name: ${{ steps.create_archive.outputs.RELEASE_NAME }}
+          body: |
+            This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
+            Built from FFmpeg source on $(date +%Y-%m-%d).
+          files: |
+            ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
