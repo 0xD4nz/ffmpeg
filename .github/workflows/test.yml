@@ -30,6 +30,14 @@ jobs:
           make -j$(nproc)
           make install
 
+      - name: Build x265 (static)
+        run: |
+          git clone https://bitbucket.org/multicoreware/x265_git.git
+          cd x265_git/build/linux
+          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ../../source
+          make -j$(nproc)
+          make install
+
       - name: Build fdk-aac (static)
         run: |
           git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
@@ -39,11 +47,11 @@ jobs:
           make -j$(nproc)
           make install
 
-      - name: Build FFmpeg (static)
+      - name: Build FFmpeg (static, master branch)
         run: |
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          git checkout release/6.1
+          # Jangan checkout release/6.1, pakai master terbaru untuk support FLV+HEVC
           PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/ffmpeg_build" \
@@ -56,12 +64,15 @@ jobs:
             --enable-openssl \
             --enable-nonfree \
             --enable-libx264 \
+            --enable-libx265 \
             --enable-libfdk-aac \
             --enable-protocol=http \
             --enable-protocol=https \
             --enable-protocol=rtmp \
             --enable-muxer=flv \
             --enable-demuxer=flv \
+            --enable-decoder=hevc \
+            --enable-encoder=libx265 \
             --disable-shared \
             --enable-static \
             --disable-debug \
@@ -100,14 +111,12 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-libtool
             mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-cmake
             base-devel
 
-      - name: Build dependencies (x264, fdk-aac)
+      - name: Build x264 (static)
         shell: msys2 {0}
         run: |
-          pacman -S --noconfirm unzip
-          mkdir -p $HOME/static
-
           git clone --depth 1 https://code.videolan.org/videolan/x264.git
           cd x264
           ./configure --prefix=$HOME/static --enable-static --disable-opencl --host=x86_64-w64-mingw32
@@ -115,6 +124,20 @@ jobs:
           make install
           cd ..
 
+      - name: Build x265 (static)
+        shell: msys2 {0}
+        run: |
+          git clone https://bitbucket.org/multicoreware/x265_git.git
+          cd x265_git/build/mingw
+          sh ./make-toolchain.sh x86_64-w64-mingw32.static
+          cp ./8bit/x265-static.lib $HOME/static/lib/
+          cp ../source/x265.h $HOME/static/include/
+          # NB: ffmpeg expects libx265.a, so symlink or copy
+          ln -sf $HOME/static/lib/x265-static.lib $HOME/static/lib/libx265.a
+
+      - name: Build fdk-aac (static)
+        shell: msys2 {0}
+        run: |
           git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
           cd fdk-aac
           autoreconf -fiv
@@ -122,12 +145,12 @@ jobs:
           make -j$(nproc)
           make install
 
-      - name: Build FFmpeg (static)
+      - name: Build FFmpeg (static, master branch)
         shell: msys2 {0}
         run: |
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          git checkout release/6.1
+          # Jangan checkout release/6.1, pakai master terbaru!
           PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/static" \
@@ -141,12 +164,15 @@ jobs:
             --enable-openssl \
             --enable-nonfree \
             --enable-libx264 \
+            --enable-libx265 \
             --enable-libfdk-aac \
             --enable-protocol=http \
             --enable-protocol=https \
             --enable-protocol=rtmp \
             --enable-muxer=flv \
             --enable-demuxer=flv \
+            --enable-decoder=hevc \
+            --enable-encoder=libx265 \
             --disable-shared \
             --enable-static \
             --disable-debug \
