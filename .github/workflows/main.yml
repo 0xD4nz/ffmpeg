@@ -47,28 +47,23 @@ jobs:
           # Copy x265.pc jika ada
           find . -name 'x265.pc' -exec cp {} $HOME/ffmpeg_build/lib/pkgconfig/ \; || true
 
+      
       - name: Generate x265.pc if not exist
-        run: |
+        run: |-
           if [ ! -f "$HOME/ffmpeg_build/lib/pkgconfig/x265.pc" ]; then
-            echo "!!! x265.pc not found, generating manually"
-            cat > $HOME/ffmpeg_build/lib/pkgconfig/x265.pc <<EOF
-prefix=$HOME/ffmpeg_build
-exec_prefix=\${prefix}
-libdir=\${exec_prefix}/lib
-includedir=\${prefix}/include
-
-Name: x265
-Description: H.265/HEVC video encoder library
-Version: 3.5
-Libs: -L\${libdir} -lx265
-Cflags: -I\${includedir}
-EOF
+            echo "Download x265.pc.in dari upstream dan convert jadi x265.pc"
+            wget -O /tmp/x265.pc.in https://github.com/videolan/x265/raw/refs/heads/master/source/x265.pc.in
+            sed \
+              -e 's|@PREFIX@|'"$HOME"'/ffmpeg_build|g' \
+              -e 's|@LIBDIR@|'"$HOME"'/ffmpeg_build/lib|g' \
+              -e 's|@INCLUDEDIR@|'"$HOME"'/ffmpeg_build/include|g' \
+              -e 's|@X265_VERSION@|3.5|g' \
+              /tmp/x265.pc.in > $HOME/ffmpeg_build/lib/pkgconfig/x265.pc
           fi
           echo "DEBUG: List $HOME/ffmpeg_build/lib/pkgconfig"
           ls -lh $HOME/ffmpeg_build/lib/pkgconfig
           echo "DEBUG: Content of x265.pc"
           cat $HOME/ffmpeg_build/lib/pkgconfig/x265.pc
-
       - name: Build fdk-aac (static)
         run: |
           git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
