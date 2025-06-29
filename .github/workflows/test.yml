@@ -1,160 +1,86 @@
 name: Build Static FFmpeg for Linux and Windows with Release Upload
 
-on: workflow_dispatch:
+on:
+  workflow_dispatch:
 
-permissions: contents: write
+permissions:
+  contents: write
 
-env: RELEASE_TAG: ffmpeg-static-build
+env:
+  RELEASE_TAG: ffmpeg-static-restream-build
 
-jobs: build-linux-static: name: Build Static FFmpeg on Linux (x86_64) runs-on: ubuntu-latest
+jobs:
+  build-linux-static:
+    name: Build Static FFmpeg on Linux (x86_64)
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Install build tools
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y \
-        autoconf automake build-essential cmake git libtool \
-        pkg-config texinfo wget yasm nasm zlib1g-dev libssl-dev
+    steps:
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake build-essential cmake git libtool \
+            pkg-config texinfo wget yasm nasm zlib1g-dev libssl-dev
 
-  - name: Build x264 (static)
-    run: |
-      git clone --depth 1 https://code.videolan.org/videolan/x264.git
-      cd x264
-      ./configure --prefix="$HOME/ffmpeg_build" --enable-static --disable-opencl
-      make -j$(nproc)
-      make install
+      - name: Build x264 (static)
+        run: |
+          git clone --depth 1 https://code.videolan.org/videolan/x264.git
+          cd x264
+          ./configure --prefix="$HOME/ffmpeg_build" --enable-static --disable-opencl
+          make -j$(nproc)
+          make install
 
-  - name: Build fdk-aac (static)
-    run: |
-      git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
-      cd fdk-aac
-      autoreconf -fiv
-      ./configure --prefix="$HOME/ffmpeg_build" --disable-shared
-      make -j$(nproc)
-      make install
+      - name: Build fdk-aac (static)
+        run: |
+          git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
+          cd fdk-aac
+          autoreconf -fiv
+          ./configure --prefix="$HOME/ffmpeg_build" --disable-shared
+          make -j$(nproc)
+          make install
 
-  - name: Build FFmpeg (static)
-    run: |
-      git clone https://github.com/ffmpeg/ffmpeg.git
-      cd ffmpeg
-      git checkout release/6.1
-      ./configure \
-        --prefix="$HOME/ffmpeg_build" \
-        --pkg-config-flags="--static" \
-        --extra-cflags="-I$HOME/ffmpeg_build/include" \
-        --extra-ldflags="-L$HOME/ffmpeg_build/lib -static" \
-        --extra-libs="-lpthread -lm" \
-        --bindir="$HOME/bin" \
-        --enable-gpl \
-        --enable-nonfree \
-        --enable-libx264 \
-        --enable-libfdk-aac \
-        --enable-protocol=http \
-        --enable-protocol=https \
-        --enable-protocol=rtmp \
-        --enable-muxer=flv \
-        --enable-demuxer=flv \
-        --disable-shared \
-        --enable-static \
-        --disable-debug \
-        --disable-doc \
-        --enable-small
-      make -j$(nproc)
-      make install
-      cp $HOME/bin/ffmpeg $GITHUB_WORKSPACE/ffmpeg-linux-static-x86_64
+      - name: Build FFmpeg (static)
+        run: |
+          git clone https://github.com/ffmpeg/ffmpeg.git
+          cd ffmpeg
+          git checkout release/6.1
+          ./configure \
+            --prefix="$HOME/ffmpeg_build" \
+            --pkg-config-flags="--static" \
+            --extra-cflags="-I$HOME/ffmpeg_build/include" \
+            --extra-ldflags="-L$HOME/ffmpeg_build/lib -static" \
+            --extra-libs="-lpthread -lm" \
+            --bindir="$HOME/bin" \
+            --enable-gpl \
+            --enable-nonfree \
+            --enable-libx264 \
+            --enable-libfdk-aac \
+            --enable-protocol=http \
+            --enable-protocol=https \
+            --enable-protocol=rtmp \
+            --enable-muxer=flv \
+            --enable-demuxer=flv \
+            --disable-shared \
+            --enable-static \
+            --disable-debug \
+            --disable-doc \
+            --enable-small
+          make -j$(nproc)
+          make install
+          cp $HOME/bin/ffmpeg $GITHUB_WORKSPACE/ffmpeg-linux-static-x86_64
 
-  - name: Upload as Artifact (Linux Static)
-    uses: actions/upload-artifact@v4
-    with:
-      name: ffmpeg-linux-static
-      path: ${{ github.workspace }}/ffmpeg-linux-static-x86_64
+      - name: Upload as Artifact (Linux Static)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-linux-static
+          path: ${{ github.workspace }}/ffmpeg-linux-static-x86_64
 
-  - name: Upload to GitHub Release (Linux Static)
-    uses: softprops/action-gh-release@v2
-    with:
-      tag_name: ${{ env.RELEASE_TAG }}
-      name: "FFmpeg Static Build"
-      files: ${{ github.workspace }}/ffmpeg-linux-static-x86_64
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-build-windows-static: name: Build Static FFmpeg on Windows (MSYS2) runs-on: windows-latest
-
-steps:
-  - name: Setup MSYS2
-    uses: msys2/setup-msys2@v2
-    with:
-      update: true
-      install: >-
-        git make yasm nasm 
-        mingw-w64-x86_64-toolchain 
-        base-devel
-
-  - name: Build dependencies (x264, fdk-aac)
-    shell: msys2 {0}
-    run: |
-      pacman -S --noconfirm unzip
-      mkdir -p $HOME/static
-
-      git clone --depth 1 https://code.videolan.org/videolan/x264.git
-      cd x264
-      ./configure --prefix=$HOME/static --enable-static --disable-opencl --host=x86_64-w64-mingw32
-      make -j$(nproc)
-      make install
-      cd ..
-
-      git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
-      cd fdk-aac
-      autoreconf -fiv
-      ./configure --prefix=$HOME/static --disable-shared --host=x86_64-w64-mingw32
-      make -j$(nproc)
-      make install
-
-  - name: Build FFmpeg (static)
-    shell: msys2 {0}
-    run: |
-      git clone https://github.com/ffmpeg/ffmpeg.git
-      cd ffmpeg
-      git checkout release/6.1
-      PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig" \
-      ./configure \
-        --prefix="$HOME/static" \
-        --pkg-config-flags="--static" \
-        --extra-cflags="-I$HOME/static/include" \
-        --extra-ldflags="-L$HOME/static/lib -static" \
-        --extra-libs="-lpthread -lm" \
-        --target-os=mingw32 \
-        --arch=x86_64 \
-        --enable-gpl \
-        --enable-nonfree \
-        --enable-libx264 \
-        --enable-libfdk-aac \
-        --enable-protocol=http \
-        --enable-protocol=https \
-        --enable-protocol=rtmp \
-        --enable-muxer=flv \
-        --enable-demuxer=flv \
-        --disable-shared \
-        --enable-static \
-        --disable-debug \
-        --disable-doc \
-        --enable-small
-      make -j$(nproc)
-      make install
-      cp $HOME/static/bin/ffmpeg.exe $GITHUB_WORKSPACE/ffmpeg-windows-static-x86_64.exe
-
-  - name: Upload as Artifact (Windows Static)
-    uses: actions/upload-artifact@v4
-    with:
-      name: ffmpeg-windows-static
-      path: ${{ github.workspace }}/ffmpeg-windows-static-x86_64.exe
-
-  - name: Upload to GitHub Release (Windows Static)
-    uses: softprops/action-gh-release@v2
-    with:
-      tag_name: ${{ env.RELEASE_TAG }}
-      name: "FFmpeg Static Build"
-      files: ${{ github.workspace }}/ffmpeg-windows-static-x86_64.exe
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      - name: Upload to GitHub Release (Linux Static)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "FFmpeg Static Restream Build"
+          files: ${{ github.workspace }}/ffmpeg-linux-static-x86_64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
