@@ -44,10 +44,8 @@ jobs:
             ..
           make -j$(nproc)
           make install
-          # Copy x265.pc jika ada
           find . -name 'x265.pc' -exec cp {} $HOME/ffmpeg_build/lib/pkgconfig/ \; || true
 
-      
       - name: Generate x265.pc if not exist
         run: |-
           if [ ! -f "$HOME/ffmpeg_build/lib/pkgconfig/x265.pc" ]; then
@@ -64,6 +62,7 @@ jobs:
           ls -lh $HOME/ffmpeg_build/lib/pkgconfig
           echo "DEBUG: Content of x265.pc"
           cat $HOME/ffmpeg_build/lib/pkgconfig/x265.pc
+
       - name: Build fdk-aac (static)
         run: |
           git clone --depth 1 https://github.com/mstorsjo/fdk-aac.git
@@ -73,13 +72,25 @@ jobs:
           make -j$(nproc)
           make install
 
+      - name: Debug x265 build & pkg-config before FFmpeg
+        run: |
+          echo "PKG_CONFIG_PATH is: $HOME/ffmpeg_build/lib/pkgconfig"
+          echo "==> List pkgconfig dir:"
+          ls -lh $HOME/ffmpeg_build/lib/pkgconfig/
+          echo "==> List libx265 in lib:"
+          ls -lh $HOME/ffmpeg_build/lib/libx265*
+          echo "==> Content of x265.pc:"
+          cat $HOME/ffmpeg_build/lib/pkgconfig/x265.pc || echo "NOT FOUND"
+          export PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig"
+          echo "==> pkg-config result for x265:"
+          pkg-config --modversion x265 || echo "x265 NOT FOUND"
+
       - name: Build FFmpeg (static, master branch)
         run: |
-          export PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig"
-          pkg-config --modversion x265 || echo "x265.pc NOT FOUND"
+          PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" pkg-config --modversion x265 || echo "x265.pc NOT FOUND"
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          ./configure \
+          PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" ./configure \
             --prefix="$HOME/ffmpeg_build" \
             --pkg-config-flags="--static" \
             --extra-cflags="-I$HOME/ffmpeg_build/include" \
@@ -124,13 +135,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-windows-static:
-    name: Build Static FFmpeg on Windows (MSYS2)
+    name: Build Static FFmpeg on Windows (MINGW64)
     runs-on: windows-latest
 
     steps:
-      - name: Setup MSYS2
+      - name: Setup MSYS2 (MINGW64)
         uses: msys2/setup-msys2@v2
         with:
+          msystem: MINGW64
           update: true
           install: >-
             git make yasm nasm autoconf automake libtool
@@ -174,8 +186,13 @@ jobs:
 
       - name: Build FFmpeg (static, master branch, fully static binary)
         shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: $HOME/static/lib/pkgconfig
         run: |
-          export PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig"
+          which gcc
+          which x86_64-w64-mingw32-gcc
+          gcc --version
+          x86_64-w64-mingw32-gcc --version
           pkg-config --modversion x265 || echo "x265.pc NOT FOUND"
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
@@ -207,6 +224,7 @@ jobs:
             --enable-small
           make -j$(nproc)
           make install
+          objdump -p $HOME/static/bin/ffmpeg.exe | grep 'DLL Name' || echo "STATIC BUILD: no DLL dependency"
           cp $HOME/static/bin/ffmpeg.exe $GITHUB_WORKSPACE/ffmpeg-windows-static-x86_64.exe
 
       - name: Upload as Artifact (Windows Static)
