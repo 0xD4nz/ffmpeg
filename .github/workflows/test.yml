@@ -3,6 +3,9 @@ name: Build FFmpeg for Linux and Windows with Release Upload
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write  # 🔧 Required for GitHub Releases
+
 env:
   RELEASE_TAG: ffmpeg-restream-build
 
@@ -54,20 +57,20 @@ jobs:
             --enable-small
           make -j$(nproc)
           make install
-          mv ~/bin/ffmpeg ./ffmpeg-linux-x86_64
+          cp ~/bin/ffmpeg $GITHUB_WORKSPACE/ffmpeg-linux-x86_64
 
       - name: Upload as Artifact (Linux)
         uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-linux
-          path: ffmpeg/ffmpeg-linux-x86_64
+          path: ${{ github.workspace }}/ffmpeg-linux-x86_64
 
       - name: Upload to GitHub Release (Linux)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: "FFmpeg Restream Build"
-          files: ffmpeg/ffmpeg-linux-x86_64
+          files: ${{ github.workspace }}/ffmpeg-linux-x86_64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -93,17 +96,15 @@ jobs:
 
       - name: Prepare FFmpeg binary
         run: |
-          mkdir -p ~/ffmpeg-bin
-          cp /mingw64/bin/ffmpeg.exe ~/ffmpeg-bin/ffmpeg-windows-x86_64.exe
-          cp /mingw64/bin/ffprobe.exe ~/ffmpeg-bin/ffprobe-windows-x86_64.exe
+          mkdir -p $GITHUB_WORKSPACE/ffmpeg-bin
+          cp /mingw64/bin/ffmpeg.exe $GITHUB_WORKSPACE/ffmpeg-bin/ffmpeg-windows-x86_64.exe
+          cp /mingw64/bin/ffprobe.exe $GITHUB_WORKSPACE/ffmpeg-bin/ffprobe-windows-x86_64.exe
 
       - name: Upload as Artifact (Windows)
         uses: actions/upload-artifact@v4
         with:
           name: ffmpeg-windows
-          path: |
-            ~/ffmpeg-bin/ffmpeg-windows-x86_64.exe
-            ~/ffmpeg-bin/ffprobe-windows-x86_64.exe
+          path: ${{ github.workspace }}/ffmpeg-bin/
 
       - name: Upload to GitHub Release (Windows)
         uses: softprops/action-gh-release@v2
@@ -111,7 +112,7 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: "FFmpeg Restream Build"
           files: |
-            ~/ffmpeg-bin/ffmpeg-windows-x86_64.exe
-            ~/ffmpeg-bin/ffprobe-windows-x86_64.exe
+            ${{ github.workspace }}/ffmpeg-bin/ffmpeg-windows-x86_64.exe
+            ${{ github.workspace }}/ffmpeg-bin/ffprobe-windows-x86_64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
