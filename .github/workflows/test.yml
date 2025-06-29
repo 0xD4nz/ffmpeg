@@ -36,11 +36,17 @@ jobs:
           cd x265_git/source
           mkdir -p build-linux-static
           cd build-linux-static
-          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ..
+          cmake -G "Unix Makefiles" \
+            -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" \
+            -DENABLE_SHARED=off \
+            -DENABLE_CLI=off \
+            -DEXPORT_PKG_CONFIG=ON \
+            ..
           make -j$(nproc)
           make install
-          # Fix: copy x265.pc agar ffmpeg detect via pkg-config
+          # Force copy x265.pc
           find . -name 'x265.pc' -exec cp {} $HOME/ffmpeg_build/lib/pkgconfig/ \;
+          ls -l $HOME/ffmpeg_build/lib/pkgconfig/
 
       - name: Build fdk-aac (static)
         run: |
@@ -53,10 +59,9 @@ jobs:
 
       - name: Build FFmpeg (static, master branch)
         run: |
+          export PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig"
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          # Pakai master branch, JANGAN checkout release!
-          PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/ffmpeg_build" \
             --pkg-config-flags="--static" \
@@ -135,11 +140,10 @@ jobs:
           cd x265_git/source
           mkdir -p build-win64-static
           cd build-win64-static
-          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=$HOME/static -DENABLE_SHARED=off ..
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=$HOME/static -DENABLE_SHARED=off -DENABLE_CLI=off -DEXPORT_PKG_CONFIG=ON ..
           make -j$(nproc)
           make install
-          # Copy x265.pc (kalau ada)
-          if [ -f ./x265.pc ]; then cp ./x265.pc $HOME/static/lib/pkgconfig/; fi
+          # Copy x265.pc
           find . -name 'x265.pc' -exec cp {} $HOME/static/lib/pkgconfig/ \;
 
       - name: Build fdk-aac (static)
@@ -155,10 +159,9 @@ jobs:
       - name: Build FFmpeg (static, master branch)
         shell: msys2 {0}
         run: |
+          export PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig"
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          # Pakai master branch, JANGAN checkout release!
-          PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/static" \
             --pkg-config-flags="--static" \
