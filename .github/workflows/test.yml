@@ -53,6 +53,7 @@ jobs:
             --extra-libs="-lpthread -lm" \
             --bindir="$HOME/bin" \
             --enable-gpl \
+            --enable-openssl \
             --enable-nonfree \
             --enable-libx264 \
             --enable-libfdk-aac \
@@ -136,6 +137,7 @@ jobs:
             --target-os=mingw32 \
             --arch=x86_64 \
             --enable-gpl \
+            --enable-openssl \
             --enable-nonfree \
             --enable-libx264 \
             --enable-libfdk-aac \
