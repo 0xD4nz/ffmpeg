@@ -39,6 +39,8 @@ jobs:
           cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ..
           make -j$(nproc)
           make install
+          # Fix: copy x265.pc agar ffmpeg detect via pkg-config
+          find . -name 'x265.pc' -exec cp {} $HOME/ffmpeg_build/lib/pkgconfig/ \;
 
       - name: Build fdk-aac (static)
         run: |
@@ -136,6 +138,9 @@ jobs:
           cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=$HOME/static -DENABLE_SHARED=off ..
           make -j$(nproc)
           make install
+          # Copy x265.pc (kalau ada)
+          if [ -f ./x265.pc ]; then cp ./x265.pc $HOME/static/lib/pkgconfig/; fi
+          find . -name 'x265.pc' -exec cp {} $HOME/static/lib/pkgconfig/ \;
 
       - name: Build fdk-aac (static)
         shell: msys2 {0}
