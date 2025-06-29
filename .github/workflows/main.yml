@@ -1,136 +1,53 @@
-name: Build FFmpeg with H.265 (Windows) and Upload to Release
+name: Build FFmpeg with libx264 and libfdk_aac
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
-  build_ffmpeg_windows:
-    runs-on: windows-latest
+  build-ffmpeg:
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up MSYS2 Environment
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          # Hapus 'cmake' dari daftar install di sini agar tidak konflik
-          install: >-
-            git
-            make
-            automake
-            autoconf
-            libtool
-            pkg-config
-            diffutils
-            yasm
-            nasm
-            gcc
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-x264
-            mingw-w64-x86_64-fdk-aac
-            mingw-w64-x86_64-opus
-            mingw-w64-x86_64-lame
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-zlib
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-bzip2
-
-      - name: Install specific CMake version for x265
-        uses: lukka/get-cmake@v3.22.0 # Gunakan versi CMake yang lebih lama, contoh: 3.22.0
-        with:
-          cmakeVersion: 3.22.0 # Versi CMake yang lebih lama dari 4.0.2 dan cukup baru
-          # Set lokasi instalasi CMake, agar tidak konflik dengan PATH MSYS2
-          cmakeInstallationPath: ${{ runner.temp }}/cmake-specific
-
-      - name: Set up Environment Variables for Custom Builds
-        shell: msys2 {0}
+      - name: Install dependencies
         run: |
-          export INSTALL_DIR=$(pwd)/ffmpeg_build
-          # Tambahkan PATH CMake yang baru diinstal ke variabel lingkungan
-          export PATH="$INSTALL_DIR/bin:$PATH:$GITHUB_TEMP/cmake-specific/bin"
-          export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig"
-          mkdir -p "$INSTALL_DIR"
-          echo "INSTALL_DIR=$(pwd)/ffmpeg_build" >> "$GITHUB_ENV"
-          echo "PATH=$INSTALL_DIR/bin:$PATH:$GITHUB_TEMP/cmake-specific/bin" >> "$GITHUB_ENV"
-          echo "PKG_CONFIG_PATH=$INSTALL_DIR/lib/pkgconfig" >> "$GITHUB_ENV"
-
-      - name: Clone and Build libx265 (using specific CMake)
-        shell: msys2 {0}
-        run: |
-          cd "$INSTALL_DIR"
-          git clone https://github.com/videolan/x265.git x265_source
-          mkdir -p x265_build
-          cd x265_build
-          # Panggil cmake dengan path eksplisit untuk memastikan versi yang benar
-          "${GITHUB_TEMP}/cmake-specific/bin/cmake" -G "Unix Makefiles" ../x265_source/source \
-            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
-            -DENABLE_SHARED=OFF \
-            -DENABLE_CLI=OFF
-          make -j$(nproc)
-          make install
-          cp "$INSTALL_DIR/lib/pkgconfig/x265.pc" "/mingw64/lib/pkgconfig/"
+          sudo apt-get update
+          sudo apt-get install -y \
+            autoconf automake build-essential cmake git-core libtool \
+            pkg-config texinfo wget yasm nasm zlib1g-dev \
+            libass-dev libfreetype6-dev libvorbis-dev \
+            libx264-dev libfdk-aac-dev libmp3lame-dev libopus-dev
 
       - name: Clone FFmpeg
-        shell: msys2 {0}
         run: |
-          cd "$INSTALL_DIR"
-          git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg_source
+          git clone https://github.com/ffmpeg/ffmpeg.git
+          cd ffmpeg
+          git checkout release/6.1
 
-      - name: Configure and Build FFmpeg
-        shell: msys2 {0}
+      - name: Configure and build FFmpeg
         run: |
-          cd "$INSTALL_DIR/ffmpeg_source"
+          cd ffmpeg
           ./configure \
-            --prefix="$INSTALL_DIR" \
+            --prefix="$HOME/ffmpeg_build" \
             --pkg-config-flags="--static" \
-            --extra-libs="-static -lwinpthread -lm" \
-            --extra-cflags="-static" \
-            --bindir="$INSTALL_DIR/bin" \
+            --extra-cflags="-I$HOME/ffmpeg_build/include" \
+            --extra-ldflags="-L$HOME/ffmpeg_build/lib" \
+            --extra-libs="-lpthread -lm" \
+            --bindir="$HOME/bin" \
             --enable-gpl \
-            --enable-libx265 \
+            --enable-nonfree \
             --enable-libx264 \
             --enable-libfdk-aac \
-            --enable-nonfree \
-            --enable-shared \
-            --enable-version3 \
             --enable-libmp3lame \
             --enable-libopus \
-            --enable-zlib \
-            --enable-openssl \
-            --enable-libxml2
+            --enable-libass \
+            --enable-libfreetype \
+            --enable-small
+
           make -j$(nproc)
           make install
 
-      - name: Create FFmpeg Archive
-        id: create_archive
-        shell: msys2 {0}
-        run: |
-          cd "$INSTALL_DIR"
-          VERSION=$(./bin/ffmpeg -version | head -n 1 | awk '{print $3}')
-          ARCHIVE_NAME="ffmpeg-h265-$(date +%Y%m%d)-${VERSION}-windows-x64.zip"
-          zip -r "$ARCHIVE_NAME" bin lib share
-
-          echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> "$GITHUB_OUTPUT"
-          echo "RELEASE_TAG=ffmpeg-h265-windows-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          echo "RELEASE_NAME=FFmpeg with H.265 (Windows) built on $(date +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Archive FFmpeg Binary
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ steps.create_archive.outputs.RELEASE_TAG }}
-          name: ${{ steps.create_archive.outputs.RELEASE_NAME }}
-          body: |
-            This release contains a custom build of FFmpeg with H.265 (libx265) support for Windows (x64).
-            Built from FFmpeg source on $(date +%Y-%m-%d).
-          files: |
-            ${{ steps.create_archive.outputs.ARCHIVE_PATH }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: ffmpeg-binary
+          path: ~/bin/ffmpeg
