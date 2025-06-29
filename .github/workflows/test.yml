@@ -33,8 +33,10 @@ jobs:
       - name: Build x265 (static)
         run: |
           git clone https://bitbucket.org/multicoreware/x265_git.git
-          cd x265_git/build/linux
-          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ../../source
+          cd x265_git/source
+          mkdir -p build-linux-static
+          cd build-linux-static
+          cmake -G "Unix Makefiles" -DCMAKE_INSTALL_PREFIX="$HOME/ffmpeg_build" -DENABLE_SHARED=off ..
           make -j$(nproc)
           make install
 
@@ -51,7 +53,7 @@ jobs:
         run: |
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          # Jangan checkout release/6.1, pakai master terbaru untuk support FLV+HEVC
+          # Pakai master branch, JANGAN checkout release!
           PKG_CONFIG_PATH="$HOME/ffmpeg_build/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/ffmpeg_build" \
@@ -128,12 +130,12 @@ jobs:
         shell: msys2 {0}
         run: |
           git clone https://bitbucket.org/multicoreware/x265_git.git
-          cd x265_git/build/mingw
-          sh ./make-toolchain.sh x86_64-w64-mingw32.static
-          cp ./8bit/x265-static.lib $HOME/static/lib/
-          cp ../source/x265.h $HOME/static/include/
-          # NB: ffmpeg expects libx265.a, so symlink or copy
-          ln -sf $HOME/static/lib/x265-static.lib $HOME/static/lib/libx265.a
+          cd x265_git/source
+          mkdir -p build-win64-static
+          cd build-win64-static
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=$HOME/static -DENABLE_SHARED=off ..
+          make -j$(nproc)
+          make install
 
       - name: Build fdk-aac (static)
         shell: msys2 {0}
@@ -150,7 +152,7 @@ jobs:
         run: |
           git clone https://github.com/ffmpeg/ffmpeg.git
           cd ffmpeg
-          # Jangan checkout release/6.1, pakai master terbaru!
+          # Pakai master branch, JANGAN checkout release!
           PKG_CONFIG_PATH="$HOME/static/lib/pkgconfig" \
           ./configure \
             --prefix="$HOME/static" \
